@@ -66,10 +66,13 @@ func findMismatchedBracket(s string) int {
 				// take the last element off the stack
 				st = st[:l]
 			}
-
 		}
 	}
-	return -1
+	if len(st) == 0 {
+		return -1
+	} else {
+		return len(s)
+	}
 }
 
 func findFieldEnd(text string) int {
@@ -88,6 +91,10 @@ func corruptKey(key string) string {
 	}
 	keyNum = keyNum - CORRUPTION_CONSTANT
 	return strconv.Itoa(keyNum)
+}
+
+func (p *ProtoscopeDoc) ToString() string {
+	return p.text
 }
 
 func (p *ProtoscopeDoc) Corrupt(rule *ProtoCorruptKeyRule) string {

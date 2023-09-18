@@ -1,0 +1,1 @@
+cat data/$1.bin | protoc --decode_raw > data/$1.pb.txt

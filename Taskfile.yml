@@ -1,0 +1,13 @@
+version: "3"
+
+tasks:
+  run:
+    cmds:
+      - go run proxy.go middleware_youtube.go
+  build:
+    cmds:
+      - go build -o bin -v proxy.go middleware_youtube.go
+  clean:
+    cmds:
+      - rm -rf bin/*
+      - rm -rf data/*

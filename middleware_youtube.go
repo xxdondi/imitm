@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/elazarl/goproxy"
-	"github.com/protocolbuffers/protoscope"
 )
 
 type YoutubeAdblockMiddleware struct{}
@@ -36,10 +35,15 @@ func (mw *YoutubeAdblockMiddleware) Register(proxy *goproxy.ProxyHttpServer) {
 					log.Printf("Error reading response body")
 					return resp
 				}
-				body, _ = removeAdsBytes(body)
-
-				// Rewrite the response body
-				resp.Body = io.NopCloser(bytes.NewReader(body))
+				if detectAds(body) {
+					log.Printf("Ads detected in response from %s", ctx.Req.URL.Hostname())
+					filename := fmt.Sprint(time.Now().Format("04-05.0")) + "-" + ctx.Req.URL.Hostname()
+					os.WriteFile("data/"+filename+"-raw.bin", body, 06440)
+					body = removeAdsProtoscope(body)
+					os.WriteFile("data/"+filename+"-processed.bin", body, 06440)
+					// Rewrite the response body
+					resp.Body = io.NopCloser(bytes.NewReader(body))
+				}
 				return resp
 			} else {
 				return resp
@@ -47,49 +51,34 @@ func (mw *YoutubeAdblockMiddleware) Register(proxy *goproxy.ProxyHttpServer) {
 		})
 }
 
-func deserializeProto(body []byte) string {
-	return protoscope.Write(body, protoscope.WriterOptions{
-		AllFieldsAreMessages:   false,
-		ExplicitLengthPrefixes: false,
-		NoGroups:               true,
-		PrintFieldNames:        false,
-	})
-}
-
-func serializeProto(protoTxt string) []byte {
-	scanner := protoscope.NewScanner(protoTxt)
-	outBytes, err := scanner.Exec()
-	if err != nil {
-		log.Printf("Error scanning - %v", err)
-		return nil
-	}
-	return outBytes
-}
-
 func RemoveAds(body []byte) []byte {
 	//return removeAdsBytes(body)
 	return removeAdsProtoscope(body)
 }
 
-func removeAdsProtoscope(body []byte) []byte {
-	if !bytes.Contains(body, []byte("/pagead/")) {
-		return body
-	}
+func detectAds(body []byte) bool {
+	return bytes.Contains(body, []byte("/pagead/"))
+}
 
-	protoTxt := deserializeProto(body)
+func removeAdsProtoscope(body []byte) []byte {
+	protoTxt := DeserializeProto(body)
 
 	protoDoc := NewProtoscopeDoc(protoTxt)
 	corruptRules := []*ProtoCorruptKeyRule{
-		NewProtoCorruptKeyRule("172660663", FieldValueContains("fullscreen_engagement_companion.eml")),
+		// 172660663 is too broad
+		//NewProtoCorruptKeyRule("491441836", FieldValueContains("https://www.googleadservices.com")),
+		NewProtoCorruptKeyRule("445279784", FieldValueContains("/pagead/")).WithCorruptFn(CorruptNthParentKeyFn(3)),
 		NewProtoCorruptKeyRule("62960614", FieldValueContains("https://www.googleadservices.com")),
 		NewProtoCorruptKeyRule("62960614", FieldValueContains("Visit advertiser")),
 	}
 	for _, corruptRule := range corruptRules {
-		protoDoc.Corrupt(corruptRule)
+		modCount := protoDoc.Corrupt(corruptRule)
+		if modCount > 0 {
+			log.Printf("Corrupted field key %s", corruptRule.key)
+		}
 	}
 
-	// Find the field key
-	return serializeProto(protoTxt)
+	return SerializeProto(protoDoc.String())
 }
 
 func removeAdsBytes(body []byte) ([]byte, int) {

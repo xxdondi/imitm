@@ -25,10 +25,98 @@ func TestFindMismatchedBrackets(t *testing.T) {
 	}
 }
 
+func TestFindMismatchedBracketsRight(t *testing.T) {
+	testStr1 := "foo { bar { baz } something else"
+	testStr2 := "foo { bar } } something else"
+	testStr3 := "foo { bar } blah blah"
+
+	result := findMismatchedBracketRight(testStr1)
+	if result != 4 {
+		t.Errorf("findMismatchedBracketRight(%v) should return 4, got %d", testStr1, result)
+	}
+	result = findMismatchedBracketRight(testStr2)
+	if result != -1 {
+		t.Errorf("findMismatchedBracketRight(%v) should return -1, got %d", testStr2, result)
+	}
+	result = findMismatchedBracketRight(testStr3)
+	if result != -1 {
+		t.Errorf("findMismatchedBracketRight(%v) should return -1, got %d", testStr3, result)
+	}
+}
+
+func TestFindParentKeyIdx(t *testing.T) {
+	testStr1 := `
+		6 {
+			1: 4
+			2 {
+				1: "context"
+				2: "yt_ios_small_form_factor_w2w"
+			}
+			2 {
+				1: "logged_in"
+				2: "1"
+			}
+		}
+	`
+
+	result := findParentKeyIdx(testStr1, 8)
+	if result != 3 {
+		t.Errorf("findParentKeyIdx(5) should return 3, got %d", result)
+	}
+	result = findParentKeyIdx(testStr1, 29)
+	if result != 18 {
+		t.Errorf("findParentKeyIdx(5) should return 18, got %d", result)
+	}
+	result = findParentKeyIdx(testStr1, 0)
+	if result != -1 {
+		t.Errorf("findParentKeyIdx(0) should return -1, got %d", result)
+	}
+}
+
+func TestCorruptKeyAt(t *testing.T) {
+	testStr1 := `
+		6 {
+			1: 4
+			2 {
+				1: "context"
+				2: "yt_ios_small_form_factor_w2w"
+			}
+			2 {
+				1: "logged_in"
+				2: "1"
+			}
+		}
+	`
+	result := corruptKeyAt(testStr1, 3)
+	if result[3:6] != "999" {
+		t.Errorf("corruptKeyAt(3)[3:6] should be '999', got %s", string(result[3:6]))
+	}
+}
+
+func TestCorruptNthParentKey(t *testing.T) {
+	testStr1 := `
+		6 {
+			1: 4
+			2 {
+				1: "context"
+				2: "yt_ios_small_form_factor_w2w"
+			}
+			2 {
+				1: "logged_in"
+				2: "1"
+			}
+		}
+	`
+	result := CorruptNthParentKeyFn(1)(testStr1, 9, 10)
+	if result[3:6] != "999" {
+		t.Errorf("CorruptNthParentKeyFn(1)(9, 10)[3:6] should be '999', got %s", string(result[3:6]))
+	}
+}
+
 func TestCorrupt(t *testing.T) {
 	doc := NewProtoscopeDoc(`foo: { 123: { baz: "asd" } }`)
 	doc.Corrupt(NewProtoCorruptKeyRule("123", FieldValueContains("asd")))
-	if doc.ToString() != `foo: { 54: { baz: "asd" } }` {
+	if doc.String() != `foo: { 999: { baz: "asd" } }` {
 		t.Errorf("Expected output mismatch, got %v", doc.text)
 	}
 }
@@ -41,7 +129,7 @@ func TestCorrupt1(t *testing.T) {
 	}
 	doc := NewProtoscopeDoc(string(file))
 	doc.Corrupt(NewProtoCorruptKeyRule("412326366", FieldValueContains("https://www.googleadservices.com/pagead/")))
-	modified := doc.ToString()
+	modified := doc.String()
 
 	lines := strings.Split(modified, "\n")
 	// Line where the text should be modified

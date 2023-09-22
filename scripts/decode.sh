@@ -1,1 +1,1 @@
-cat data/$1.bin | protoc --decode_raw > data/$1.pb.txt
+~/go/bin/protoscope data/$1.bin > data/$1.der.txt

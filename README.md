@@ -14,7 +14,7 @@ go run .
 ```
 
 The default mode is capture only: HTTPS is intercepted using your own local CA,
-and the experimental YouTube response modifier is disabled.
+and no traffic modification modules are enabled.
 
 1. Connect the Mac and iPhone to the same Wi-Fi network.
 2. On the iPhone, open Safari at `http://<Mac-LAN-IP>:3129/ca.cer`.
@@ -41,7 +41,7 @@ not raw packets or WebSocket message streams.
 go run . -v                          # additional internal proxy logging
 go run . -httpaddr :8080             # another explicit proxy port
 go run . -capture-dir data/my-runs    # another capture location
-go run . -mode adblock -body-limit 16777216 # combined YouTube experiment
+go run . -modules youtube -body-limit 16777216 # YouTube preroll blocking
 ```
 
 `-httpsaddr :3128` enables the optional redirected TLS listener. Manual Wi-Fi
@@ -78,13 +78,13 @@ produce them. Onesie header type 25 indicates an encrypted InnerTube response:
 a valid protobuf envelope does not mean its inner player data is decrypted.
 The inspector identifies framing only; it does not decrypt or alter traffic.
 
-### Combined YouTube experiment
+### YouTube module
 
 ```sh
-go run . -mode adblock -body-limit 16777216
+go run . -modules youtube -body-limit 16777216
 ```
 
-This mode combines two observed behaviors:
+The YouTube module combines two observed behaviors:
 
 1. Return local HTTP 502 for POST `/initplayback` on `*.googlevideo.com`, which
    caused the tested iOS app to fall back to plaintext `/youtubei/v1/player`.
@@ -108,6 +108,35 @@ and `playerads` metadata record removed fields and the endpoint. Paired
 `*-playerads-original.bin` and `*-playerads-modified.bin` files preserve evidence.
 Ordinary body captures retain upstream originals. Use `go run .` for unmodified
 capture mode.
+
+### Adding modules
+
+The main application owns the proxy listeners, TLS interception, certificate
+distribution and the capture recorder in `internal/capture`. Features live in separate Go packages under
+`internal/modules/`. Go packages are directories of source files compiled into
+the same executable; adding a module does not require a separate `go.mod`.
+
+`internal/modules.Module` has two methods: `Name() string` and
+`Register(*goproxy.ProxyHttpServer)`. A module installs its request/response
+handlers using goproxy. The YouTube implementation is in
+`internal/modules/youtube`, including its protobuf parsing and removal rules.
+YouTube unit and proxy integration tests live alongside the module.
+Its constructor accepts `modules.Evidence`, which provides `Record` and
+`SaveArtifact` methods. This keeps recording decisions and samples independent
+of the capture directory layout.
+
+To add a feature, create its package, implement the module interface, and add
+its constructor to `availableModules` in `proxy.go`. Enable modules with
+`-modules youtube,another`. Modules register in the listed order, after capture
+handlers; request bodies and upstream response bodies are therefore recorded
+before rewriting. Request handlers should return `(req, nil)` to continue or
+a response to stop upstream forwarding. Response handlers should return the
+response unchanged when their rule does not apply.
+
+Module selection is validated at startup; unknown or duplicate names fail.
+`-modules ""` enables capture only. The existing `-mode adblock` command remains
+a shortcut for `-modules youtube`; an explicit `-modules` value takes precedence.
+Modules are selected at startup and compiled into the executable.
 
 The failed tag-corruption, preroll-flag, skip-delay and legacy modifiers have
 been removed. Historical results remain in

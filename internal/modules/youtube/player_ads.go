@@ -1,4 +1,4 @@
-package main
+package youtube
 
 import (
 	"bytes"
@@ -7,11 +7,10 @@ import (
 	"log"
 	"mime"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 
 	"github.com/elazarl/goproxy"
+	"github.com/xxdondi/imitm/internal/modules"
 	"google.golang.org/protobuf/encoding/protowire"
 )
 
@@ -115,7 +114,7 @@ func removePlayerAdsAt(original []byte, startDepth int) ([]byte, []playerAdRemov
 	return out, changes, nil
 }
 
-func registerPlayerAdsExperiment(proxy *goproxy.ProxyHttpServer, recorder *captureRecorder) {
+func registerPlayerAds(proxy *goproxy.ProxyHttpServer, evidence modules.Evidence) {
 	proxy.OnResponse().DoFunc(func(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
 		if resp == nil || resp.Body == nil || resp.StatusCode != http.StatusOK || ctx.Req.URL.Hostname() != "youtubei.googleapis.com" || (ctx.Req.URL.Path != "/youtubei/v1/get_watch" && ctx.Req.URL.Path != "/youtubei/v1/player") {
 			return resp
@@ -158,11 +157,11 @@ func registerPlayerAdsExperiment(proxy *goproxy.ProxyHttpServer, recorder *captu
 		resp.Header.Del("Digest")
 		prefix := fmt.Sprintf("%06d-playerads", ctx.Session)
 		for suffix, data := range map[string][]byte{"original.bin": original, "modified.bin": modified} {
-			if err := os.WriteFile(filepath.Join(recorder.dir, prefix+"-"+suffix), data, 0600); err != nil {
+			if err := evidence.SaveArtifact(prefix+"-"+suffix, data); err != nil {
 				log.Printf("Player ads sample: %v", err)
 			}
 		}
-		recorder.record(map[string]interface{}{"id": ctx.Session, "type": "playerads", "endpoint": ctx.Req.URL.Path, "changes": changes, "original_bytes": len(original), "modified_bytes": len(modified), "sample_prefix": prefix})
+		evidence.Record(map[string]interface{}{"id": ctx.Session, "type": "playerads", "endpoint": ctx.Req.URL.Path, "changes": changes, "original_bytes": len(original), "modified_bytes": len(modified), "sample_prefix": prefix})
 		log.Printf("[%d] PLAYERADS: removed %d fields; bytes %d -> %d", ctx.Session, len(changes), len(original), len(modified))
 		return resp
 	})

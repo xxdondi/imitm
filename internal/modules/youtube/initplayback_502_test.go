@@ -1,4 +1,4 @@
-package main
+package youtube
 
 import (
 	"bytes"
@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/elazarl/goproxy"
+	"github.com/xxdondi/imitm/internal/capture"
 )
 
 func TestInitplayback502ScopeAndRecording(t *testing.T) {
@@ -28,13 +29,13 @@ func TestInitplayback502ScopeAndRecording(t *testing.T) {
 	proxy.Tr.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, network, upstream.Listener.Addr().String())
 	}
-	recorder, err := newCaptureRecorder(t.TempDir(), 1024*1024)
+	recorder, err := capture.NewRecorder(t.TempDir(), 1024*1024)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer recorder.Close()
 	recorder.Register(proxy)
-	registerInitplayback502Experiment(proxy, recorder)
+	New(recorder).Register(proxy)
 	server := httptest.NewServer(proxy)
 	defer server.Close()
 	proxyURL, _ := url.Parse(server.URL)
@@ -72,11 +73,11 @@ func TestInitplayback502ScopeAndRecording(t *testing.T) {
 			t.Fatal("unrelated request changed")
 		}
 	}
-	got, err := os.ReadFile(filepath.Join(recorder.dir, "000001-request.bin"))
+	got, err := os.ReadFile(filepath.Join(recorder.Dir(), "000001-request.bin"))
 	if err != nil || !bytes.Equal(got, body) {
 		t.Fatalf("missing blocked request capture: %v", err)
 	}
-	metadata, err := os.ReadFile(filepath.Join(recorder.dir, "flows.jsonl"))
+	metadata, err := os.ReadFile(filepath.Join(recorder.Dir(), "flows.jsonl"))
 	if err != nil || !bytes.Contains(metadata, []byte(`"type":"initplayback502"`)) || !bytes.Contains(metadata, []byte(`"status":502`)) {
 		t.Fatal("missing experiment/response metadata")
 	}

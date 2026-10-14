@@ -1,1 +1,3 @@
-~/go/bin/protoscope data/$1.bin > data/$1.der.txt
+#!/bin/zsh
+
+~/go/bin/protoscope -no-groups -o data/$1.der.txt data/$1.bin

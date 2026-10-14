@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/elazarl/goproxy"
+	"github.com/xxdondi/imitm/internal/capture"
 )
 
 func TestCaptureHTTPAndHTTPS(t *testing.T) {
@@ -50,7 +51,7 @@ func TestCaptureHTTPAndHTTPS(t *testing.T) {
 		return &goproxy.ConnectAction{Action: goproxy.ConnectMitm, TLSConfig: goproxy.TLSConfigFromCA(&ca)}, host
 	}))
 	registerCertificateDownload(proxy, der)
-	recorder, err := newCaptureRecorder(t.TempDir(), 7)
+	recorder, err := capture.NewRecorder(t.TempDir(), 7)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +87,7 @@ func TestCaptureHTTPAndHTTPS(t *testing.T) {
 			t.Fatalf("certificate download mismatch at %s", address)
 		}
 	}
-	files, err := filepath.Glob(filepath.Join(recorder.dir, "*-*.bin"))
+	files, err := filepath.Glob(filepath.Join(recorder.Dir(), "*-*.bin"))
 	if err != nil || len(files) < 4 {
 		t.Fatalf("missing captures: %v, %v", files, err)
 	}
@@ -96,7 +97,7 @@ func TestCaptureHTTPAndHTTPS(t *testing.T) {
 			t.Fatalf("capture limit failed: %s, %v", file, err)
 		}
 	}
-	metadata, err := os.ReadFile(filepath.Join(recorder.dir, "flows.jsonl"))
+	metadata, err := os.ReadFile(filepath.Join(recorder.Dir(), "flows.jsonl"))
 	if err != nil || !bytes.Contains(metadata, []byte(`"status":200`)) || !bytes.Contains(metadata, []byte("https://")) {
 		t.Fatalf("missing metadata: %s, %v", metadata, err)
 	}

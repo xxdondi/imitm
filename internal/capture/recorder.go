@@ -1,4 +1,5 @@
-package main
+// Package capture records proxy traffic and module evidence.
+package capture
 
 import (
 	"encoding/json"
@@ -14,14 +15,14 @@ import (
 	"github.com/elazarl/goproxy"
 )
 
-type captureRecorder struct {
+type Recorder struct {
 	dir   string
 	limit int64
 	file  *os.File
 	mu    sync.Mutex
 }
 
-func newCaptureRecorder(root string, limit int64) (*captureRecorder, error) {
+func NewRecorder(root string, limit int64) (*Recorder, error) {
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return nil, err
 	}
@@ -33,12 +34,22 @@ func newCaptureRecorder(root string, limit int64) (*captureRecorder, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &captureRecorder{dir: dir, limit: limit, file: f}, nil
+	return &Recorder{dir: dir, limit: limit, file: f}, nil
 }
 
-func (r *captureRecorder) Close() error { return r.file.Close() }
+func (r *Recorder) Close() error { return r.file.Close() }
 
-func (r *captureRecorder) record(event map[string]interface{}) {
+// Dir returns the directory containing this run's metadata and bodies.
+func (r *Recorder) Dir() string { return r.dir }
+
+func (r *Recorder) SaveArtifact(name string, data []byte) error {
+	if name == "." || filepath.Base(name) != name {
+		return fmt.Errorf("invalid artifact name %q", name)
+	}
+	return os.WriteFile(filepath.Join(r.dir, name), data, 0600)
+}
+
+func (r *Recorder) Record(event map[string]interface{}) {
 	event["time"] = time.Now().UTC().Format(time.RFC3339Nano)
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -47,30 +58,30 @@ func (r *captureRecorder) record(event map[string]interface{}) {
 	}
 }
 
-func (r *captureRecorder) Register(proxy *goproxy.ProxyHttpServer) {
+func (r *Recorder) Register(proxy *goproxy.ProxyHttpServer) {
 	proxy.OnRequest().DoFunc(func(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
 		log.Printf("[%d] %s %s", ctx.Session, req.Method, req.URL)
 		event := map[string]interface{}{"id": ctx.Session, "type": "request", "method": req.Method, "url": req.URL.String(), "headers": req.Header.Clone(), "client": req.RemoteAddr}
 		req.Body = r.wrapBody(req.Body, ctx.Session, "request", event)
-		r.record(event)
+		r.Record(event)
 		return req, nil
 	})
 	proxy.OnResponse().DoFunc(func(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
 		event := map[string]interface{}{"id": ctx.Session, "type": "response"}
 		if resp == nil {
 			event["error"] = fmt.Sprint(ctx.Error)
-			r.record(event)
+			r.Record(event)
 			return nil
 		}
 		log.Printf("[%d] %d %s (%s)", ctx.Session, resp.StatusCode, ctx.Req.URL, resp.Header.Get("Content-Type"))
 		event["status"], event["headers"] = resp.StatusCode, resp.Header.Clone()
 		resp.Body = r.wrapBody(resp.Body, ctx.Session, "response", event)
-		r.record(event)
+		r.Record(event)
 		return resp
 	})
 }
 
-func (r *captureRecorder) wrapBody(body io.ReadCloser, id int64, kind string, event map[string]interface{}) io.ReadCloser {
+func (r *Recorder) wrapBody(body io.ReadCloser, id int64, kind string, event map[string]interface{}) io.ReadCloser {
 	if body == nil || body == http.NoBody || r.limit == 0 {
 		return body
 	}

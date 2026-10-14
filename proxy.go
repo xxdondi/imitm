@@ -12,15 +12,20 @@ import (
 
 	"github.com/elazarl/goproxy"
 	"github.com/inconshreveable/go-vhost"
+	"github.com/xxdondi/imitm/internal/capture"
+	"github.com/xxdondi/imitm/internal/modules"
+	"github.com/xxdondi/imitm/internal/modules/youtube"
 )
 
-type MiddlewareRegisterer interface {
-	Register(proxy *goproxy.ProxyHttpServer)
+// Add built-in modules here; the proxy and CLI use the common module contract.
+func availableModules(evidence modules.Evidence) []modules.Module {
+	return []modules.Module{youtube.New(evidence)}
 }
 
 func main() {
 	verbose := flag.Bool("v", false, "should every proxy request be logged to stdout")
-	mode := flag.String("mode", "capture", "capture or adblock (502 fallback plus plaintext player ad removal)")
+	mode := flag.String("mode", "capture", "capture or adblock (compatibility shortcut for -modules youtube)")
+	moduleNames := flag.String("modules", "", "comma-separated modules in execution order (available: youtube); overrides -mode")
 	caDir := flag.String("ca-dir", "certs", "directory for the local CA certificate and private key")
 	initCA := flag.Bool("init-ca", false, "create/export the local CA and exit")
 	captureDir := flag.String("capture-dir", "data/captures", "directory for capture metadata and bodies")
@@ -28,8 +33,22 @@ func main() {
 	http_addr := flag.String("httpaddr", ":3129", "proxy http listen address")
 	https_addr := flag.String("httpsaddr", "", "optional redirected TLS listen address, e.g. :3128")
 	flag.Parse()
+	modulesExplicit := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "modules" {
+			modulesExplicit = true
+		}
+	})
+	if !modulesExplicit && *mode == "adblock" {
+		*moduleNames = "youtube"
+	}
 	if (*mode != "capture" && *mode != "adblock") || *bodyLimit < 0 {
 		log.Fatal("mode must be capture or adblock; body-limit must be nonnegative")
+	}
+	// Validate selection before creating certificates or capture directories.
+	_, err := modules.Select(*moduleNames, availableModules(nil)...)
+	if err != nil {
+		log.Fatal(err)
 	}
 	ca, certDER, err := loadOrCreateCA(*caDir)
 	if err != nil {
@@ -49,17 +68,21 @@ func main() {
 		return &goproxy.ConnectAction{Action: goproxy.ConnectMitm, TLSConfig: goproxy.TLSConfigFromCA(&ca)}, host
 	}))
 	registerCertificateDownload(proxy, certDER)
-	recorder, err := newCaptureRecorder(*captureDir, *bodyLimit)
+	recorder, err := capture.NewRecorder(*captureDir, *bodyLimit)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer recorder.Close()
-	recorder.Register(proxy)
-	if *mode == "adblock" {
-		registerInitplayback502Experiment(proxy, recorder)
-		registerPlayerAdsExperiment(proxy, recorder)
+	selected, err := modules.Select(*moduleNames, availableModules(recorder)...)
+	if err != nil {
+		log.Fatal(err)
 	}
-	log.Printf("%s proxy listening on %s; captures in %s", *mode, *http_addr, recorder.dir)
+	recorder.Register(proxy)
+	// Capture always runs first, so modules read through its original-body wrappers.
+	for _, m := range selected {
+		m.Register(proxy)
+	}
+	log.Printf("proxy listening on %s; modules [%s]; captures in %s", *http_addr, *moduleNames, recorder.Dir())
 	if *https_addr == "" {
 		log.Fatal(http.ListenAndServe(*http_addr, proxy))
 	}

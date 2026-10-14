@@ -1,4 +1,4 @@
-package main
+package youtube
 
 import (
 	"io"
@@ -7,9 +7,10 @@ import (
 	"strings"
 
 	"github.com/elazarl/goproxy"
+	"github.com/xxdondi/imitm/internal/modules"
 )
 
-func registerInitplayback502Experiment(proxy *goproxy.ProxyHttpServer, recorder *captureRecorder) {
+func registerInitplayback502(proxy *goproxy.ProxyHttpServer, evidence modules.Evidence) {
 	proxy.OnRequest().DoFunc(func(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
 		if req.Method != http.MethodPost || req.URL.Path != "/initplayback" || !strings.HasSuffix(strings.ToLower(req.URL.Hostname()), ".googlevideo.com") {
 			return req, nil
@@ -26,8 +27,8 @@ func registerInitplayback502Experiment(proxy *goproxy.ProxyHttpServer, recorder 
 		if err != nil {
 			event["read_error"] = err.Error()
 		}
-		recorder.record(event)
-		resp := goproxy.NewResponse(req, goproxy.ContentTypeText, http.StatusBadGateway, "initplayback blocked by local proxy experiment\n")
+		evidence.Record(event)
+		resp := goproxy.NewResponse(req, goproxy.ContentTypeText, http.StatusBadGateway, "initplayback blocked by YouTube module\n")
 		resp.Header.Set("Cache-Control", "no-store")
 		log.Printf("[%d] INITPLAYBACK502: blocked POST /initplayback on %s", ctx.Session, req.URL.Hostname())
 		return req, resp

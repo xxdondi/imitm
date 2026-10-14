@@ -20,7 +20,7 @@ type MiddlewareRegisterer interface {
 
 func main() {
 	verbose := flag.Bool("v", false, "should every proxy request be logged to stdout")
-	mode := flag.String("mode", "capture", "capture or youtube (experimental response modification)")
+	mode := flag.String("mode", "capture", "capture or adblock (502 fallback plus plaintext player ad removal)")
 	caDir := flag.String("ca-dir", "certs", "directory for the local CA certificate and private key")
 	initCA := flag.Bool("init-ca", false, "create/export the local CA and exit")
 	captureDir := flag.String("capture-dir", "data/captures", "directory for capture metadata and bodies")
@@ -28,8 +28,8 @@ func main() {
 	http_addr := flag.String("httpaddr", ":3129", "proxy http listen address")
 	https_addr := flag.String("httpsaddr", "", "optional redirected TLS listen address, e.g. :3128")
 	flag.Parse()
-	if (*mode != "capture" && *mode != "youtube") || *bodyLimit < 0 {
-		log.Fatal("mode must be capture or youtube; body-limit must be nonnegative")
+	if (*mode != "capture" && *mode != "adblock") || *bodyLimit < 0 {
+		log.Fatal("mode must be capture or adblock; body-limit must be nonnegative")
 	}
 	ca, certDER, err := loadOrCreateCA(*caDir)
 	if err != nil {
@@ -55,8 +55,9 @@ func main() {
 	}
 	defer recorder.Close()
 	recorder.Register(proxy)
-	if *mode == "youtube" {
-		NewYoutubeAdblockMiddleware().Register(proxy)
+	if *mode == "adblock" {
+		registerInitplayback502Experiment(proxy, recorder)
+		registerPlayerAdsExperiment(proxy, recorder)
 	}
 	log.Printf("%s proxy listening on %s; captures in %s", *mode, *http_addr, recorder.dir)
 	if *https_addr == "" {

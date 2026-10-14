@@ -50,6 +50,30 @@ Allow incoming connections if the macOS firewall prompts. Apps that ignore the
 Wi-Fi proxy or pin certificates may not be captured. Turn Configure Proxy back
 to Off when finished.
 
+### Run with Docker
+
+```sh
+docker build -t imitm .
+docker run -d --name imitm \
+  -p 3129:3129 \
+  -v imitm-certs:/app/certs \
+  -v imitm-data:/app/data \
+  imitm
+docker logs -f imitm
+```
+
+The named volumes preserve the CA and captures when the container is replaced.
+Local `certs/`, `data/`, and `bin/` directories are excluded from the image.
+The container runs as UID/GID `10001`; bind-mounted directories must be writable
+by that user. To reuse your existing CA, mount your `certs/` directory at
+`/app/certs` with matching permissions instead of using `imitm-certs`.
+
+Download the CA at `http://<Docker-host-LAN-IP>:3129/ca.cer`, then follow the
+iPhone certificate and Wi-Fi proxy steps above using the Docker host's LAN IP.
+Append application flags after the image name, for example
+`imitm -modules youtube -body-limit 16777216`. For the optional redirected TLS
+listener, also publish `-p 3128:3128` and append `-httpsaddr :3128`.
+
 ### Inspect protobuf captures offline
 
 ```sh
